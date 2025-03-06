@@ -37,9 +37,8 @@ public class HttpGatekeeperFilter {
     @ConfigProperty(name = "quarkus.smallrye-health.root-path", defaultValue = "/q/health")
     private String healthCheckPath;
 
-    @ConfigProperty(name = "quarkus.kogito.job-service.v2-jobs-path", defaultValue = "v2/jobs")
+    @ConfigProperty(name = "quarkus.kogito.job-service.v2-jobs-path", defaultValue = "/jobs")
     private String jobsPath;
-
 
     protected void onMessagingStatusChange(@Observes MessagingChangeEvent event) {
         this.enabled.set(event.isEnabled());
@@ -48,7 +47,7 @@ public class HttpGatekeeperFilter {
     @RouteFilter(100)
     void masterFilter(RoutingContext rc) throws Exception {
         if (!enabled.get() && !rc.request().path().contains(healthCheckPath)
-                           && !rc.request().path().contains(jobsPath)) {
+                && !rc.request().path().contains(jobsPath)) {
             //block
             rc.response().setStatusCode(503);
             rc.response().setStatusMessage(ERROR_MESSAGE);

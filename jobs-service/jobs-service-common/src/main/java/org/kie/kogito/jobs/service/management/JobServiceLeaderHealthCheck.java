@@ -44,6 +44,7 @@ public class JobServiceLeaderHealthCheck implements HealthCheck {
         if (enabled.get()) {
             return responseBuilder.up().build();
         }
-        return responseBuilder.down().build();
+        return responseBuilder.up().withData("status", "WAIT")
+                .withData("message", "Not a leader").build();
     }
 }

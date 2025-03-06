@@ -51,7 +51,7 @@ public class PostgreSqlJobServiceManagementRepository implements JobServiceManag
     }
 
     public Uni<JobServiceManagementInfo> getAndUpdate(String id, Function<JobServiceManagementInfo, JobServiceManagementInfo> computeUpdate) {
-        LOGGER.info("get {}", id);
+        LOGGER.debug("get {}", id);
         return client.withTransaction(conn -> conn
                 .preparedQuery("SELECT id, token, last_heartbeat FROM job_service_management WHERE id = $1 FOR UPDATE ")
                 .execute(Tuple.of(id))
