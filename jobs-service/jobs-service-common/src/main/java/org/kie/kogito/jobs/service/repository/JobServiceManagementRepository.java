@@ -32,4 +32,21 @@ public interface JobServiceManagementRepository {
 
     Uni<JobServiceManagementInfo> heartbeat(JobServiceManagementInfo info);
 
+    /**
+     * Ensure the management row exists with NULL token/heartbeat to avoid first-claim races.
+     */
+    Uni<Void> ensureRowExists(String id);
+
+    /**
+     * Attempt to atomically claim leadership.
+     * Returns updated info when claim succeeds, or null when not leader.
+     */
+    Uni<JobServiceManagementInfo> claim(String id, String token, long heartbeatExpirationInSeconds);
+
+    /**
+     * Release leadership by clearing token and last_heartbeat if token matches.
+     * Returns updated (now cleared) info when release succeeds, or null if token mismatch.
+     */
+    Uni<JobServiceManagementInfo> release(String id, String token);
+
 }

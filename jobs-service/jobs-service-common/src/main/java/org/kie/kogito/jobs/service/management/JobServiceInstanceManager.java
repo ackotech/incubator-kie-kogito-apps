@@ -67,6 +67,8 @@ public class JobServiceInstanceManager {
 
     @Inject
     Event<MessagingChangeEvent> messagingChangeEventEvent;
+    @Inject
+    Event<JobServiceInstanceInfoEvent> instanceInfoEvent;
 
     @Inject
     Vertx vertx;
@@ -84,6 +86,9 @@ public class JobServiceInstanceManager {
 
     void startup(@Observes StartupEvent startupEvent) {
         buildAndSetInstanceInfo();
+        // ensure the management row exists to avoid first-claim races
+        repository.ensureRowExists(leaderManagementId).subscribe().with(v -> LOGGER.debug("Ensured management row exists for id {}", leaderManagementId),
+                ex -> LOGGER.error("Failed to ensure management row exists", ex));
 
         //background task for leader check, it will be started after the first tryBecomeLeader() execution
         checkLeader = vertx.periodicStream(TimeUnit.SECONDS.toMillis(leaderCheckIntervalInSeconds))
@@ -131,6 +136,10 @@ public class JobServiceInstanceManager {
         shutdown();
     }
 
+    void onResignLeader(@Observes ResignLeaderEvent event) {
+        shutdown();
+    }
+
     private void shutdown() {
         release(currentInfo.get())
                 .onItem().invoke(i -> checkLeader.cancel())
@@ -145,56 +154,85 @@ public class JobServiceInstanceManager {
 
     protected Uni<JobServiceManagementInfo> tryBecomeLeader(JobServiceManagementInfo info, TimeoutStream checkLeader, TimeoutStream heartbeat) {
         LOGGER.debug("Try to become Leader");
-        return repository.getAndUpdate(info.getId(), c -> {
-            final OffsetDateTime currentTime = DateUtil.now().toOffsetDateTime();
-            if (Objects.isNull(c) || Objects.isNull(c.getToken()) || Objects.equals(c.getToken(), info.getToken()) || Objects.isNull(c.getLastHeartbeat())
-                    || c.getLastHeartbeat().isBefore(currentTime.minusSeconds(heartbeatExpirationInSeconds))) {
-                //old instance is not active
-                info.setLastHeartbeat(currentTime);
-                LOGGER.info("SET Leader {}", info);
-                leader.set(true);
-                enableCommunication();
-                heartbeat.resume();
-                checkLeader.pause();
-                return info;
-            } else {
-                if (isLeader()) {
-                    LOGGER.info("Not Leader");
-                    leader.set(false);
-                    disableCommunication();
-                }
-                //stop heartbeats if running
-                heartbeat.pause();
-                //guarantee the stream is running if not leader
-                checkLeader.resume();
-            }
-            return null;
-        });
+        return repository.claim(info.getId(), info.getToken(), heartbeatExpirationInSeconds)
+                .onItem().transformToUni(claimed -> {
+                    if (claimed != null) {
+                        info.setLastHeartbeat(DateUtil.now().toOffsetDateTime());
+                        LOGGER.info("SET Leader {}", info);
+                        leader.set(true);
+                        enableCommunication();
+                        heartbeat.resume();
+                        checkLeader.pause();
+                        instanceInfoEvent.fire(new JobServiceInstanceInfoEvent(info.getId(), info.getToken()));
+                        return Uni.createFrom().item(info);
+                    } else {
+                        if (isLeader()) {
+                            LOGGER.info("Not Leader");
+                            leader.set(false);
+                            disableCommunication();
+                        }
+                        heartbeat.pause();
+                        checkLeader.resume();
+                        // add jittered backoff by pausing and resuming after random delay
+                        long backoffMillis = computeJitteredBackoffMillis();
+                        checkLeader.pause();
+                        vertx.setTimer(backoffMillis, t -> checkLeader.resume());
+                        return Uni.createFrom().nullItem();
+                    }
+                });
     }
 
     protected Uni<Void> release(JobServiceManagementInfo info) {
         leader.set(false);
-        return repository.set(new JobServiceManagementInfo(info.getId(), null, null))
-                .onItem().invoke(this::disableCommunication)
-                .onItem().invoke(i -> LOGGER.info("Leader instance released"))
+        return repository.release(info.getId(), info.getToken())
+                .onItem().invoke(i -> disableCommunication())
+                .onItem().invoke(i -> {
+                    LOGGER.info("Leader instance released");
+                    long backoffMillis = computeJitteredBackoffMillis();
+                    heartbeat.pause();
+                    checkLeader.pause();
+                    vertx.setTimer(backoffMillis, t -> checkLeader.resume());
+                })
                 .onFailure().invoke(ex -> LOGGER.error("Error releasing leader"))
                 .replaceWithVoid();
     }
 
     protected Uni<JobServiceManagementInfo> heartbeat(JobServiceManagementInfo info) {
-        if (isLeader()) {
-            return repository.heartbeat(info);
+        if (!isLeader()) {
+            return Uni.createFrom().nullItem();
         }
-        return Uni.createFrom().nullItem();
+        return repository.heartbeat(info)
+                .onItem().transformToUni(updated -> {
+                    if (updated == null) {
+                        // demote if our token was replaced
+                        LOGGER.warn("Heartbeat failed; demoting from leader: {}", info);
+                        leader.set(false);
+                        disableCommunication();
+                        heartbeat.pause();
+                        long backoffMillis = computeJitteredBackoffMillis();
+                        checkLeader.pause();
+                        vertx.setTimer(backoffMillis, t -> checkLeader.resume());
+                        return Uni.createFrom().nullItem();
+                    }
+                    return Uni.createFrom().item(updated);
+                });
     }
 
     private void buildAndSetInstanceInfo() {
         currentInfo.set(new JobServiceManagementInfo(leaderManagementId, generateToken(), DateUtil.now().toOffsetDateTime()));
         LOGGER.info("Current Job Service Instance {}", currentInfo.get());
+        instanceInfoEvent.fire(new JobServiceInstanceInfoEvent(currentInfo.get().getId(), currentInfo.get().getToken()));
     }
 
     private String generateToken() {
         return UUID.randomUUID().toString();
+    }
+
+    private long computeJitteredBackoffMillis() {
+        long base = TimeUnit.SECONDS.toMillis(leaderCheckIntervalInSeconds);
+        long multiplier = 1 + (long) (Math.random() * 3); // 1..3
+        long jitter = (long) (base * 0.1 * (Math.random() - 0.5)); // +/-10%
+        return Math.max(1, multiplier * base + jitter);
     }
 
     protected JobServiceManagementInfo getCurrentInfo() {

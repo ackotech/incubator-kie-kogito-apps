@@ -52,4 +52,42 @@ public class DefaultJobServiceManagementRepository implements JobServiceManageme
         info.setLastHeartbeat(DateUtil.now().toOffsetDateTime());
         return set(info);
     }
+
+    @Override
+    public Uni<Void> ensureRowExists(String id) {
+        JobServiceManagementInfo current = instance.get();
+        if (current == null || current.getId() == null) {
+            instance.set(new JobServiceManagementInfo(id, null, null));
+        }
+        return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    public Uni<JobServiceManagementInfo> claim(String id, String token, long heartbeatExpirationInSeconds) {
+        JobServiceManagementInfo current = instance.get();
+        if (current == null || current.getId() == null) {
+            instance.set(new JobServiceManagementInfo(id, token, DateUtil.now().toOffsetDateTime()));
+            return Uni.createFrom().item(instance.get());
+        }
+        boolean canClaim = current.getToken() == null || token.equals(current.getToken()) ||
+                current.getLastHeartbeat() == null ||
+                current.getLastHeartbeat().isBefore(DateUtil.now().toOffsetDateTime().minusSeconds(heartbeatExpirationInSeconds));
+        if (canClaim) {
+            JobServiceManagementInfo updated = new JobServiceManagementInfo(id, token, DateUtil.now().toOffsetDateTime());
+            instance.set(updated);
+            return Uni.createFrom().item(updated);
+        }
+        return Uni.createFrom().nullItem();
+    }
+
+    @Override
+    public Uni<JobServiceManagementInfo> release(String id, String token) {
+        JobServiceManagementInfo current = instance.get();
+        if (current != null && id.equals(current.getId()) && token.equals(current.getToken())) {
+            JobServiceManagementInfo updated = new JobServiceManagementInfo(id, null, null);
+            instance.set(updated);
+            return Uni.createFrom().item(updated);
+        }
+        return Uni.createFrom().nullItem();
+    }
 }

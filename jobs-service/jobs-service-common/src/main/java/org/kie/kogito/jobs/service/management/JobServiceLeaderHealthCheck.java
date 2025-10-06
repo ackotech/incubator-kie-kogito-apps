@@ -33,18 +33,33 @@ import jakarta.enterprise.event.Observes;
 public class JobServiceLeaderHealthCheck implements HealthCheck {
 
     private final AtomicBoolean enabled = new AtomicBoolean(false);
+    private volatile String id;
+    private volatile String token;
 
     protected void onMessagingStatusChange(@Observes MessagingChangeEvent event) {
         this.enabled.set(event.isEnabled());
+    }
+
+    protected void onInfoChange(@Observes JobServiceInstanceInfoEvent event) {
+        this.id = event.getId();
+        this.token = event.getToken();
     }
 
     @Override
     public HealthCheckResponse call() {
         final HealthCheckResponseBuilder responseBuilder = HealthCheckResponse.named("Leader Instance");
         if (enabled.get()) {
-            return responseBuilder.up().build();
+            return responseBuilder.up()
+                    .withData("status", "LEADER")
+                    .withData("id", id)
+                    .withData("token", token)
+                    .build();
         }
-        return responseBuilder.up().withData("status", "WAIT")
-                .withData("message", "Not a leader").build();
+        return responseBuilder.up()
+                .withData("status", "WAIT")
+                .withData("message", "Not a leader")
+                .withData("id", id)
+                .withData("token", token)
+                .build();
     }
 }

@@ -19,6 +19,7 @@
 package org.kie.kogito.jobs.service.resource;
 
 import org.kie.kogito.jobs.service.management.ReleaseLeaderEvent;
+import org.kie.kogito.jobs.service.management.ResignLeaderEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +29,7 @@ import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Response;
 
 @Path("/management")
@@ -37,6 +39,8 @@ public class JobServiceManagementResource {
 
     @Inject
     Event<ReleaseLeaderEvent> releaseLeaderEventEvent;
+    @Inject
+    Event<ResignLeaderEvent> resignLeaderEventEvent;
 
     @POST
     @Path("/shutdown")
@@ -45,5 +49,14 @@ public class JobServiceManagementResource {
                 .onItem().invoke(i -> LOGGER.info("Job Service is shutting down"))
                 .onItem().invoke(() -> releaseLeaderEventEvent.fire(new ReleaseLeaderEvent()))
                 .onItem().transform(i -> Response.ok().build());
+    }
+
+    @POST
+    @Path("/resignLeadership")
+    public Uni<Response> resignLeadership(@QueryParam("backoffCycles") Integer backoffCycles) {
+        return Uni.createFrom().voidItem()
+                .onItem().invoke(i -> LOGGER.info("Resign leadership requested, backoffCycles: {}", backoffCycles))
+                .onItem().invoke(() -> resignLeaderEventEvent.fire(new ResignLeaderEvent()))
+                .onItem().transform(i -> Response.accepted().build());
     }
 }

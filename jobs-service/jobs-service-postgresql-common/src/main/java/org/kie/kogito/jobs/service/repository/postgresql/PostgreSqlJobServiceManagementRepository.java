@@ -99,4 +99,31 @@ public class PostgreSqlJobServiceManagementRepository implements JobServiceManag
                 .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null)
                 .onItem().invoke(r -> LOGGER.trace("Heartbeat {}", r)));
     }
+
+    @Override
+    public Uni<Void> ensureRowExists(String id) {
+        return client.preparedQuery("INSERT INTO job_service_management(id, token, last_heartbeat) VALUES ($1, NULL, NULL) ON CONFLICT (id) DO NOTHING")
+                .execute(Tuple.of(id))
+                .replaceWithVoid();
+    }
+
+    @Override
+    public Uni<JobServiceManagementInfo> claim(String id, String token, long heartbeatExpirationInSeconds) {
+        return client.withTransaction(conn -> conn
+                .preparedQuery("UPDATE job_service_management SET token = $2, last_heartbeat = now() " +
+                        "WHERE id = $1 AND (token IS NULL OR token = $2 OR last_heartbeat < (now() - make_interval(secs => $3))) " +
+                        "RETURNING id, token, last_heartbeat")
+                .execute(Tuple.of(id, token, heartbeatExpirationInSeconds))
+                .onItem().transform(RowSet::iterator)
+                .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null));
+    }
+
+    @Override
+    public Uni<JobServiceManagementInfo> release(String id, String token) {
+        return client.withTransaction(conn -> conn
+                .preparedQuery("UPDATE job_service_management SET token = NULL, last_heartbeat = NULL WHERE id = $1 AND token = $2 RETURNING id, token, last_heartbeat")
+                .execute(Tuple.of(id, token))
+                .onItem().transform(RowSet::iterator)
+                .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null));
+    }
 }
