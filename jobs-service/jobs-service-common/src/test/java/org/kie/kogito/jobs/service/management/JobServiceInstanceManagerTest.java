@@ -20,7 +20,6 @@ package org.kie.kogito.jobs.service.management;
 
 import java.time.OffsetDateTime;
 import java.util.Arrays;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +74,9 @@ class JobServiceInstanceManagerTest {
     @Mock
     Event<MessagingChangeEvent> messagingChangeEventEvent;
 
+    @Mock
+    Event<JobServiceInstanceInfoEvent> instanceInfoEvent;
+
     @Captor
     ArgumentCaptor<JobServiceManagementInfo> infoCaptor;
 
@@ -103,6 +105,7 @@ class JobServiceInstanceManagerTest {
         assertThat(infoCaptor.getValue()).isEqualTo(tested.getCurrentInfo());
         assertThat(tested.getHeartbeat()).isNotNull();
         assertThat(tested.getCheckLeader()).isNotNull();
+        verify(repository, times(1)).ensureRowExists(anyString());
     }
 
     @Test
@@ -112,18 +115,17 @@ class JobServiceInstanceManagerTest {
 
         verify(tested, times(1)).release(infoCaptor.capture());
         assertThat(infoCaptor.getValue()).isEqualTo(tested.getCurrentInfo());
-        verify(repository, times(1)).set(new JobServiceManagementInfo());
+        verify(repository, times(1)).release(anyString(), anyString());
     }
 
     @Test
     void tryBecomeLeaderSuccess() {
         JobServiceManagementInfo info = new JobServiceManagementInfo("id", "token", OffsetDateTime.now());
-        ArgumentCaptor<Function<JobServiceManagementInfo, JobServiceManagementInfo>> updateFunction = ArgumentCaptor.forClass(Function.class);
 
         TimeoutStream checkLeader = vertx.timerStream(1);
         TimeoutStream heartbeat = vertx.timerStream(1);
         tested.tryBecomeLeader(info, checkLeader, heartbeat).await().indefinitely();
-        verify(repository).getAndUpdate(anyString(), updateFunction.capture());
+        verify(repository).claim(anyString(), anyString(), any(Long.class));
         assertThat(tested.isLeader()).isTrue();
         verify(messagingHandler).resume();
         verify(messagingChangeEventEvent).fire(any());
@@ -131,15 +133,15 @@ class JobServiceInstanceManagerTest {
 
     @Test
     void tryBecomeLeaderFail() {
-        JobServiceManagementInfo info = new JobServiceManagementInfo("id", "token", OffsetDateTime.now());
-        JobServiceManagementInfo info2 = new JobServiceManagementInfo("id2", "token2", OffsetDateTime.now());
-        repository.set(info).await().indefinitely();
-        ArgumentCaptor<Function<JobServiceManagementInfo, JobServiceManagementInfo>> updateFunction = ArgumentCaptor.forClass(Function.class);
+        // existing active leader for same id prevents claim
+        JobServiceManagementInfo existing = new JobServiceManagementInfo("id2", "existingToken", OffsetDateTime.now());
+        repository.set(existing).await().indefinitely();
+        JobServiceManagementInfo contender = new JobServiceManagementInfo("id2", "token2", OffsetDateTime.now());
 
         TimeoutStream checkLeader = vertx.timerStream(1);
         TimeoutStream heartbeat = vertx.timerStream(1);
-        tested.tryBecomeLeader(info2, checkLeader, heartbeat).await().indefinitely();
-        verify(repository).getAndUpdate(anyString(), updateFunction.capture());
+        tested.tryBecomeLeader(contender, checkLeader, heartbeat).await().indefinitely();
+        verify(repository).claim(anyString(), anyString(), any(Long.class));
         assertThat(tested.isLeader()).isFalse();
     }
 

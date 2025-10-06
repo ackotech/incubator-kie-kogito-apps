@@ -18,8 +18,6 @@
  */
 package org.kie.kogito.jobs.service.management;
 
-import java.time.OffsetDateTime;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;

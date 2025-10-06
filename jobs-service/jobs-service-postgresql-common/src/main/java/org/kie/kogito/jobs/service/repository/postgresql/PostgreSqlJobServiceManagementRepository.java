@@ -111,9 +111,9 @@ public class PostgreSqlJobServiceManagementRepository implements JobServiceManag
     public Uni<JobServiceManagementInfo> claim(String id, String token, long heartbeatExpirationInSeconds) {
         return client.withTransaction(conn -> conn
                 .preparedQuery("UPDATE job_service_management SET token = $2, last_heartbeat = now() " +
-                        "WHERE id = $1 AND (token IS NULL OR token = $2 OR last_heartbeat < (now() - make_interval(secs => $3))) " +
+                        "WHERE id = $1 AND (token IS NULL OR token = $2 OR last_heartbeat < (now() - ($3 || ' seconds')::interval)) " +
                         "RETURNING id, token, last_heartbeat")
-                .execute(Tuple.of(id, token, heartbeatExpirationInSeconds))
+                .execute(Tuple.of(id, token, Long.toString(heartbeatExpirationInSeconds)))
                 .onItem().transform(RowSet::iterator)
                 .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null));
     }

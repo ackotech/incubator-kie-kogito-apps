@@ -18,9 +18,6 @@
  */
 package org.kie.kogito.jobs.service.repository.postgresql;
 
-import java.time.OffsetDateTime;
-import java.util.concurrent.atomic.AtomicReference;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.kie.kogito.jobs.service.model.JobServiceManagementInfo;
@@ -50,37 +47,28 @@ class PostgreSqlJobServiceManagementRepositoryTest {
     void testGetAndUpdate() {
         String id = "instance-id-1";
         String token = "token1";
-        create(id, token);
-
-        AtomicReference<OffsetDateTime> date = new AtomicReference<>();
-        JobServiceManagementInfo updated = tested.getAndUpdate(id, info -> {
-            date.set(DateUtil.now().toOffsetDateTime());
-            info.setLastHeartbeat(date.get());
-            return info;
-        }).await().indefinitely();
-        assertThat(updated.getId()).isEqualTo(id);
-        assertThat(date.get()).isNotNull();
-        assertThat(updated.getLastHeartbeat()).isEqualTo(date.get());
-        assertThat(updated.getToken()).isEqualTo(token);
+        tested.ensureRowExists(id).await().indefinitely();
+        JobServiceManagementInfo claimed = tested.claim(id, token, 1).await().indefinitely();
+        assertThat(claimed).isNotNull();
+        assertThat(claimed.getId()).isEqualTo(id);
+        assertThat(claimed.getToken()).isEqualTo(token);
     }
 
     @Test
-    void testGetAndUpdateNotExisting() {
+    void testClaimFailsWhenActive() {
         String id = "instance-id-2";
-        AtomicReference<JobServiceManagementInfo> found = new AtomicReference<>(new JobServiceManagementInfo());
-        JobServiceManagementInfo updated = tested.getAndUpdate(id, info -> {
-            found.set(info);
-            return info;
-        }).await().indefinitely();
-        assertThat(updated).isNull();
-        assertThat(found.get()).isNull();
+        tested.ensureRowExists(id).await().indefinitely();
+        JobServiceManagementInfo first = tested.claim(id, "tokenA", 1000).await().indefinitely();
+        assertThat(first).isNotNull();
+        JobServiceManagementInfo second = tested.claim(id, "tokenB", 1000).await().indefinitely();
+        assertThat(second).isNull();
     }
 
     private JobServiceManagementInfo create(String id, String token) {
-        JobServiceManagementInfo created = tested.set(new JobServiceManagementInfo(id, token, null)).await().indefinitely();
+        tested.ensureRowExists(id).await().indefinitely();
+        JobServiceManagementInfo created = tested.claim(id, token, 1).await().indefinitely();
         assertThat(created.getId()).isEqualTo(id);
         assertThat(created.getToken()).isEqualTo(token);
-        assertThat(created.getLastHeartbeat()).isNull();
         return created;
     }
 
