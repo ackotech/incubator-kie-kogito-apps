@@ -135,7 +135,10 @@ public class JobServiceInstanceManager {
     }
 
     void onResignLeader(@Observes ResignLeaderEvent event) {
-        shutdown();
+        // Release leadership but keep timers alive; we want to re-enter follower state and compete again
+        release(currentInfo.get())
+                .subscribe().with(i -> LOGGER.info("Resign completed; switching to follower and resuming leader checks"),
+                        ex -> LOGGER.error("Error on resign leader", ex));
     }
 
     private void shutdown() {

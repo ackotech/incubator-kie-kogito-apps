@@ -158,4 +158,24 @@ class JobServiceInstanceManagerTest {
         tested.heartbeat(tested.getCurrentInfo()).await().indefinitely();
         verify(repository).heartbeat(tested.getCurrentInfo());
     }
+
+    @Test
+    void resignLeadershipKeepsPolling() {
+        tested.startup(startupEvent);
+        assertThat(tested.isLeader()).isFalse();
+
+        // Try to become leader
+        tested.tryBecomeLeader(tested.getCurrentInfo(), tested.getCheckLeader(), tested.getHeartbeat()).await().indefinitely();
+        // We may or may not become leader depending on timing; force a leader by claiming through repo
+        repository.claim(tested.getCurrentInfo().getId(), tested.getCurrentInfo().getToken(), 1).await().indefinitely();
+        assertThat(tested.isLeader()).isTrue();
+
+        // Resign via event
+        tested.onResignLeader(new ResignLeaderEvent());
+
+        // After resign, instance should demote and resume leader checks (not shutdown)
+        assertThat(tested.isLeader()).isFalse();
+        assertThat(tested.getCheckLeader()).isNotNull();
+        assertThat(tested.getHeartbeat()).isNotNull();
+    }
 }

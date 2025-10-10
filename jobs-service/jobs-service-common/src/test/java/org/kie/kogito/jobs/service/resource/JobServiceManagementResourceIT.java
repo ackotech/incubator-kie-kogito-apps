@@ -33,6 +33,7 @@ class JobServiceManagementResourceIT {
 
     private static final String HEALTH_ENDPOINT = "/q/health/ready";
     public static final String MANAGEMENT_SHUTDOWN_ENDPOINT = "/management/shutdown";
+    public static final String MANAGEMENT_RESIGN_ENDPOINT = "/management/resignLeadership";
 
     @Test
     public void testShutdown() {
@@ -55,5 +56,29 @@ class JobServiceManagementResourceIT {
                 .get(HEALTH_ENDPOINT)
                 .then()
                 .statusCode(503));
+    }
+
+    @Test
+    public void testResignLeadership() {
+        given()
+                .contentType(ContentType.JSON)
+                .accept(ContentType.JSON)
+                .get(HEALTH_ENDPOINT)
+                .then()
+                .statusCode(200);
+
+        given()
+                .when()
+                .post(MANAGEMENT_RESIGN_ENDPOINT)
+                .then()
+                .statusCode(202);
+
+        // After resign, service should remain UP (follower) and continue trying for leadership
+        Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> given()
+                .contentType(ContentType.JSON)
+                .accept(ContentType.JSON)
+                .get(HEALTH_ENDPOINT)
+                .then()
+                .statusCode(200));
     }
 }
