@@ -90,4 +90,11 @@ public class DefaultJobServiceManagementRepository implements JobServiceManageme
         }
         return Uni.createFrom().nullItem();
     }
+
+    @Override
+    public Uni<JobServiceManagementInfo> forceClaim(String id, String token) {
+        JobServiceManagementInfo updated = new JobServiceManagementInfo(id, token, DateUtil.now().toOffsetDateTime());
+        instance.set(updated);
+        return Uni.createFrom().item(updated);
+    }
 }

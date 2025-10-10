@@ -126,4 +126,13 @@ public class PostgreSqlJobServiceManagementRepository implements JobServiceManag
                 .onItem().transform(RowSet::iterator)
                 .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null));
     }
+
+    @Override
+    public Uni<JobServiceManagementInfo> forceClaim(String id, String token) {
+        return client.withTransaction(conn -> conn
+                .preparedQuery("UPDATE job_service_management SET token = $2, last_heartbeat = now() WHERE id = $1 RETURNING id, token, last_heartbeat")
+                .execute(Tuple.of(id, token))
+                .onItem().transform(RowSet::iterator)
+                .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null));
+    }
 }

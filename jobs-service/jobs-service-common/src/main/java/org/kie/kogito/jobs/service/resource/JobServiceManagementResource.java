@@ -18,6 +18,7 @@
  */
 package org.kie.kogito.jobs.service.resource;
 
+import org.kie.kogito.jobs.service.management.ForceLeaderEvent;
 import org.kie.kogito.jobs.service.management.ReleaseLeaderEvent;
 import org.kie.kogito.jobs.service.management.ResignLeaderEvent;
 import org.slf4j.Logger;
@@ -41,6 +42,8 @@ public class JobServiceManagementResource {
     Event<ReleaseLeaderEvent> releaseLeaderEventEvent;
     @Inject
     Event<ResignLeaderEvent> resignLeaderEventEvent;
+    @Inject
+    Event<ForceLeaderEvent> forceLeaderEventEvent;
 
     @POST
     @Path("/shutdown")
@@ -57,6 +60,15 @@ public class JobServiceManagementResource {
         return Uni.createFrom().voidItem()
                 .onItem().invoke(i -> LOGGER.info("Resign leadership requested, backoffCycles: {}", backoffCycles))
                 .onItem().invoke(() -> resignLeaderEventEvent.fire(new ResignLeaderEvent()))
+                .onItem().transform(i -> Response.accepted().build());
+    }
+
+    @POST
+    @Path("/forceLeadership")
+    public Uni<Response> forceLeadership() {
+        return Uni.createFrom().voidItem()
+                .onItem().invoke(i -> LOGGER.warn("Force leadership requested"))
+                .onItem().invoke(() -> forceLeaderEventEvent.fire(new ForceLeaderEvent()))
                 .onItem().transform(i -> Response.accepted().build());
     }
 }

@@ -141,6 +141,18 @@ public class JobServiceInstanceManager {
                         ex -> LOGGER.error("Error on resign leader", ex));
     }
 
+    void onForceLeader(@Observes ForceLeaderEvent event) {
+        JobServiceManagementInfo info = currentInfo.get();
+        repository.forceClaim(info.getId(), info.getToken())
+                .subscribe().with(updated -> {
+                    leader.set(true);
+                    enableCommunication();
+                    heartbeat.resume();
+                    checkLeader.pause();
+                    LOGGER.warn("Leadership forced for {}", updated);
+                }, ex -> LOGGER.error("Error forcing leadership", ex));
+    }
+
     private void shutdown() {
         release(currentInfo.get())
                 .onItem().invoke(i -> checkLeader.cancel())

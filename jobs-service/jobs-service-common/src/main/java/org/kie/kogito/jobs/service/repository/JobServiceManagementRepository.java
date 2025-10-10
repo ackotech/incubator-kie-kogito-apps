@@ -49,4 +49,10 @@ public interface JobServiceManagementRepository {
      */
     Uni<JobServiceManagementInfo> release(String id, String token);
 
+    /**
+     * Forcefully claim leadership by setting the token regardless of current holder.
+     * Returns the updated info.
+     */
+    Uni<JobServiceManagementInfo> forceClaim(String id, String token);
+
 }
